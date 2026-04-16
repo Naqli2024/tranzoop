@@ -5,6 +5,7 @@ const auth = require("../middleware/auth.middleware");
 
 // Create Bill
 router.post("/create", auth, controller.createBill);
+router.post("/from-workorder", auth, controller.createBillFromWorkOrder);
 
 // Get All Bills
 router.get("/", auth, controller.getBills);
@@ -15,4 +16,6 @@ router.get("/:id", auth, controller.getBillById);
 // Bill By CustomerId
 router.get("/customer/:customerId", auth, controller.getBillsByCustomerId);
 
+// Bill By BillNo
+router.get("/:billNo", auth, controller.getBillByBillNo);
 module.exports = router;

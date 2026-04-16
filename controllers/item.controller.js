@@ -102,15 +102,16 @@ exports.updateItem = async (req, res) => {
       return res.status(404).json({ message: "Item not found" });
     }
 
+    // Always make body safe
+    const body = req.body || {};
+
+    // =========================
     // HANDLE IMAGE UPDATE
+    // =========================
     if (req.file) {
       // Delete old image (if exists)
       if (item.itemImage) {
-        const oldPath = path.join(
-          __dirname,
-          "..",
-          item.itemImage
-        );
+        const oldPath = path.join(__dirname, "..", item.itemImage);
 
         if (fs.existsSync(oldPath)) {
           fs.unlinkSync(oldPath);
@@ -119,30 +120,31 @@ exports.updateItem = async (req, res) => {
 
       // Upload new image
       const newImageUrl = await uploadFile(req.file, businessId, erpKey);
-
       item.itemImage = newImageUrl;
     }
 
-    // Update other fields
-    item.itemName = req.body.itemName || item.itemName;
-    item.sku = req.body.sku || item.sku;
-    item.barCode = req.body.barCode || item.barCode;
-    item.category = req.body.category || item.category;
-    item.hsn = req.body.hsn || item.hsn;
-    item.gst = req.body.gst || item.gst;
-    item.uom = req.body.uom || item.uom;
-    item.mrp = req.body.mrp || item.mrp;
-    item.cost = req.body.cost || item.cost;
-    item.margin = req.body.margin || item.margin;
-    item.openingStock = req.body.openingStock || item.openingStock;
+    // =========================
+    // UPDATE ONLY PROVIDED FIELDS
+    // =========================
+    if (body.itemName !== undefined) item.itemName = body.itemName;
+    if (body.sku !== undefined) item.sku = body.sku;
+    if (body.barCode !== undefined) item.barCode = body.barCode;
+    if (body.category !== undefined) item.category = body.category;
+    if (body.hsn !== undefined) item.hsn = body.hsn;
+    if (body.gst !== undefined) item.gst = body.gst;
+    if (body.uom !== undefined) item.uom = body.uom;
+    if (body.mrp !== undefined) item.mrp = body.mrp;
+    if (body.cost !== undefined) item.cost = body.cost;
+    if (body.margin !== undefined) item.margin = body.margin;
+    if (body.openingStock !== undefined)
+      item.openingStock = body.openingStock;
 
     await item.save();
 
     res.json({
       message: "Item updated",
-      item
+      item,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

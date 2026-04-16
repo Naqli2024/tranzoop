@@ -3,7 +3,7 @@ const ERP = require("../models/ERP");
 // Create ERP
 exports.createERP = async (req, res) => {
   try {
-    const { name, key, description, modules } = req.body;
+    const { name, logo, key, description, modules } = req.body;
 
     const existing = await ERP.findOne({ key });
     if (existing) {
@@ -12,6 +12,7 @@ exports.createERP = async (req, res) => {
 
     const erp = await ERP.create({
       name,
+      logo,
       key,
       description,
       modules

@@ -1,11 +1,19 @@
 const Bill = require("../models/Bill");
 const Item = require("../models/Item");
 const Customer = require("../models/Customer");
+const WorkOrder = require("../models/WorkOrder");
+
+// Generate Bill No
+const generateBillNo = (erpKey = "INV") => {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const random = Math.floor(1000 + Math.random() * 9000);
+  return `${erpKey.toUpperCase()}-INV-${date}-${random}`;
+};
 
 // CREATE BILL
 exports.createBill = async (req, res) => {
   try {
-    const { businessId } = req.user;
+    const { businessId, erpKey } = req.user;
 
     const { customerId, items, discount = 0, paymentMethod } = req.body;
 
@@ -28,7 +36,7 @@ exports.createBill = async (req, res) => {
     for (let i of items) {
       const dbItem = await Item.findOne({
         _id: i.itemId,
-        businessId
+        businessId,
       });
 
       if (!dbItem) {
@@ -46,7 +54,7 @@ exports.createBill = async (req, res) => {
       if (dbItem.type === "product") {
         if (dbItem.openingStock < i.quantity) {
           return res.status(400).json({
-            message: `Insufficient stock for ${dbItem.itemName}`
+            message: `Insufficient stock for ${dbItem.itemName}`,
           });
         }
 
@@ -61,7 +69,7 @@ exports.createBill = async (req, res) => {
         quantity: i.quantity,
         price,
         gst: dbItem.gst,
-        total
+        total,
       });
     }
 
@@ -69,6 +77,7 @@ exports.createBill = async (req, res) => {
 
     const bill = await Bill.create({
       businessId,
+      billNo: generateBillNo(erpKey),
       customerId,
       customerName: customer.fullName,
       items: billItems,
@@ -76,14 +85,167 @@ exports.createBill = async (req, res) => {
       gstTotal,
       discount,
       grandTotal,
-      paymentMethod
+      paymentMethods: paymentMethod ? [paymentMethod] : [],
+      dueAmount: grandTotal,
     });
 
     res.status(201).json({
       message: "Bill created successfully",
-      bill
+      bill,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.createBillFromWorkOrder = async (req, res) => {
+  try {
+    const { businessId, erpKey } = req.user;
+    const { workOrderId } = req.body;
+
+    const workOrder = await WorkOrder.findOne({
+      _id: workOrderId,
+      businessId,
     });
 
+    if (!workOrder) {
+      return res.status(404).json({ message: "Work order not found" });
+    }
+
+    // Prevent duplicate billing
+    if (workOrder.billId) {
+      return res.status(400).json({
+        message: "Bill already generated for this work order",
+      });
+    }
+
+    const customer = await Customer.findById(workOrder.customerId);
+
+    let items = [];
+    let subTotal = 0;
+    let gstTotal = 0;
+
+    // SERVICES
+    if (workOrder.services?.length) {
+      workOrder.services.forEach((s) => {
+        const total = s.price + (s.price * s.gst) / 100;
+
+        items.push({
+          itemName: s.name,
+          type: "service",
+          quantity: 1,
+          price: s.price,
+          gst: s.gst,
+          total,
+        });
+
+        subTotal += s.price;
+        gstTotal += (s.price * s.gst) / 100;
+      });
+    }
+
+    // OTHER SERVICE
+    if (workOrder.otherService?.price) {
+      const s = workOrder.otherService;
+      const total = s.price + (s.price * s.gst) / 100;
+
+      items.push({
+        itemName: s.description,
+        type: "service",
+        quantity: 1,
+        price: s.price,
+        gst: s.gst,
+        total,
+      });
+
+      subTotal += s.price;
+      gstTotal += (s.price * s.gst) / 100;
+    }
+
+    // TYRES (TREATED AS PRODUCT)
+    if (workOrder.tyres?.length) {
+      for (let t of workOrder.tyres) {
+        const total = t.mrp * t.quantity;
+
+        items.push({
+          itemName: `${t.brand} ${t.size}`,
+          type: "product",
+          quantity: t.quantity,
+          price: t.mrp,
+          gst: 0,
+          total,
+        });
+
+        subTotal += total;
+
+        // OPTIONAL STOCK DEDUCTION (if mapped to item)
+        const item = await Item.findOne({
+          businessId,
+          itemName: new RegExp(t.brand, "i"),
+        });
+
+        if (item) {
+          item.openingStock -= t.quantity;
+          await item.save();
+        }
+      }
+    }
+
+    // ADDITIONAL ITEMS
+    if (workOrder.additionalItems?.length) {
+      for (let a of workOrder.additionalItems) {
+        const total = a.price * a.qty;
+
+        items.push({
+          itemName: a.name,
+          type: "product",
+          quantity: a.qty,
+          price: a.price,
+          gst: 0,
+          total,
+        });
+
+        subTotal += total;
+
+        // STOCK DEDUCTION
+        const item = await Item.findOne({
+          businessId,
+          itemName: new RegExp(a.name, "i"),
+        });
+
+        if (item) {
+          item.openingStock -= a.qty;
+          await item.save();
+        }
+      }
+    }
+
+    // FINAL CALCULATION
+    const grandTotal = subTotal + gstTotal;
+
+    const bill = await Bill.create({
+      businessId,
+      billNo: generateBillNo(erpKey),
+      customerId: workOrder.customerId,
+      customerName: customer?.fullName,
+
+      items,
+      subTotal,
+      gstTotal,
+      grandTotal,
+
+      dueAmount: grandTotal,
+    });
+
+    // LINK BILL TO WORK ORDER
+    workOrder.billId = bill._id;
+    workOrder.status = "BILLED";
+    await workOrder.save();
+
+    res.status(201).json({
+      message: "Bill created from Work Order",
+      bill,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -94,11 +256,9 @@ exports.getBills = async (req, res) => {
   try {
     const { businessId } = req.user;
 
-    const bills = await Bill.find({ businessId })
-      .sort({ createdAt: -1 });
+    const bills = await Bill.find({ businessId }).sort({ createdAt: -1 });
 
     res.json(bills);
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -112,7 +272,7 @@ exports.getBillById = async (req, res) => {
 
     const bill = await Bill.findOne({
       _id: id,
-      businessId
+      businessId,
     });
 
     if (!bill) {
@@ -120,7 +280,6 @@ exports.getBillById = async (req, res) => {
     }
 
     res.json(bill);
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -134,18 +293,47 @@ exports.getBillsByCustomerId = async (req, res) => {
 
     const bills = await Bill.find({
       customerId,
-      businessId
+      businessId,
     }).sort({ createdAt: -1 });
 
     if (!bills || bills.length === 0) {
       return res.status(404).json({
-        message: "No bills found for this customer"
+        message: "No bills found for this customer",
       });
     }
 
     res.json({
       count: bills.length,
-      bills
+      bills,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// GET BILL BY BILL NO
+exports.getBillByBillNo = async (req, res) => {
+  try {
+    const { businessId } = req.user;
+    const { billNo } = req.params;
+
+    const bill = await Bill.findOne({
+      billNo,
+      businessId
+    })
+      .populate("customerId", "fullName mobile address")
+      .populate("items.itemId", "itemName sku");
+
+    if (!bill) {
+      return res.status(404).json({
+        message: "Bill not found"
+      });
+    }
+
+    res.json({
+      message: "Bill fetched successfully",
+      bill
     });
 
   } catch (err) {

@@ -9,6 +9,7 @@ const items = require("./routes/item.routes");
 const customer = require("./routes/customer.routes");
 const bills = require("./routes/bill.routes");
 const payment = require("./routes/payment.routes");
+const workOrders = require("./routes/workorder.routes");
 const path = require("path");
 
 // environment variables
@@ -38,6 +39,7 @@ app.use("/api/items", items);
 app.use("/api/customers", customer);
 app.use("/api/bills", bills);
 app.use("/api/payments", payment);
+app.use("/api/workorders", workOrders);
 
 const PORT = process.env.PORT;
 app.listen(PORT, () => {

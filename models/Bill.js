@@ -29,6 +29,10 @@ const billSchema = new mongoose.Schema(
       ref: "Customer",
       required: true,
     },
+    billNo: {
+      type: String,
+      unique: true,
+    },
 
     customerName: String,
 

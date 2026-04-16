@@ -9,7 +9,7 @@ exports.addCustomer = async (req, res) => {
 
     if (!fullName || !mobile) {
       return res.status(400).json({
-        message: "fullName and mobile required"
+        message: "fullName and mobile required",
       });
     }
 
@@ -18,17 +18,16 @@ exports.addCustomer = async (req, res) => {
 
     if (existing) {
       return res.status(400).json({
-        message: "Customer already exists"
+        message: "Customer already exists",
       });
     }
 
     const customer = await Customer.create({
       businessId,
-      ...req.body
+      ...req.body,
     });
 
     res.status(201).json(customer);
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -41,4 +40,18 @@ exports.getCustomers = async (req, res) => {
   const customers = await Customer.find({ businessId });
 
   res.json(customers);
+};
+
+// Get Customer By customer Id
+exports.getCustomerById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customer = await Customer.findById(id);
+    if (!customer) {
+      return res.status(404).json({ message: "No customer found" });
+    }
+    return res.status(200).json(customer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };

@@ -27,7 +27,13 @@ const businessSchema = new mongoose.Schema({
   isVerified: {
     type: Boolean,
     default: false
-  }
+  },
+  businessType: {
+    type: String,
+    required: true
+  },
+  gstNo: String,
+  companyLogo: String
 
 }, { timestamps: true });
 

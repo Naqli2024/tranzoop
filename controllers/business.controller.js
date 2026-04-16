@@ -42,6 +42,8 @@ exports.registerBusiness = async (req, res) => {
       address,
       mobile,
       otp,
+      businessType,
+      gstNo,
       isVerified: false
     });
 

@@ -5,6 +5,7 @@ const erpSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  logo: String,
   key: {
     type: String,
     required: true,
