@@ -49,9 +49,13 @@ const workOrderSchema = new mongoose.Schema(
       registrationNo: String,
       brandModel: String,
       vehicleType: String,
+      odometer: String,
+      fuelType: String,
+      yearOfManufacture: Number
     },
 
     advisor: String,
+    technicianName: String,
 
     // ALWAYS PRESENT
     complaints: {
@@ -95,6 +99,11 @@ const workOrderSchema = new mongoose.Schema(
     },
 
     bay: String,
+    bayStatus: {
+      type: String,
+      enum: ["FREE", "OCCUPIED"],
+      default: "FREE",
+    },
 
     billId: {
       type: mongoose.Schema.Types.ObjectId,

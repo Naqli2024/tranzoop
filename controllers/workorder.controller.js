@@ -15,6 +15,7 @@ exports.createWorkOrder = async (req, res) => {
       customerId,
       vehicle,
       advisor,
+      technicianName,
       complaints,
       services,
       otherService,
@@ -36,6 +37,7 @@ exports.createWorkOrder = async (req, res) => {
       customerId,
       vehicle,
       advisor,
+      technicianName,
       complaints,
     };
 
@@ -154,6 +156,77 @@ exports.deleteWorkOrder = async (req, res) => {
 
     res.json({
       message: "Work order deleted"
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+exports.assignBay = async (req, res) => {
+  try {
+    const { businessId } = req.user;
+    const { woNumber } = req.params;
+    const { bay } = req.body;
+
+    const existing = await WorkOrder.findOne({
+      businessId,
+      bay,
+      status: { $in: ["IN_PROGRESS"] }
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        message: "Bay already occupied"
+      });
+    }
+
+    const workOrder = await WorkOrder.findOneAndUpdate(
+      { woNumber, businessId },
+      {
+        bay,
+        bayStatus: "OCCUPIED",
+        status: "IN_PROGRESS"
+      },
+      { new: true }
+    );
+
+    res.json({
+      message: "Bay assigned",
+      workOrder
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+exports.completeWorkOrder = async (req, res) => {
+  try {
+    const { businessId } = req.user;
+    const { woNumber } = req.params;
+
+    const workOrder = await WorkOrder.findOne({
+      woNumber,
+      businessId
+    });
+
+    if (!workOrder) {
+      return res.status(404).json({ message: "Work order not found" });
+    }
+
+    workOrder.status = "COMPLETED";
+
+    // FREE THE BAY
+    workOrder.bayStatus = "FREE";
+
+    await workOrder.save();
+
+    res.json({
+      message: "Work completed, bay is now available",
+      workOrder
     });
 
   } catch (err) {

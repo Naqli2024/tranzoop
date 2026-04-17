@@ -21,4 +21,10 @@ router.get("/", auth, controller.getOrdersByBusiness);
 // DELETE
 router.delete("/:woNumber", auth, controller.deleteWorkOrder);
 
+// Assign bay
+router.put("/:woNumber/assign-bay", auth, controller.assignBay);
+
+// Complete work
+router.put("/:woNumber/complete", auth, controller.completeWorkOrder);
+
 module.exports = router;
