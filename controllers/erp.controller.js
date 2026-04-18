@@ -27,7 +27,7 @@ exports.createERP = async (req, res) => {
 
 // Get all ERP
 exports.getAllERP = async (req, res) => {
-  const erps = await ERP.find().select("name key description modules");
+  const erps = await ERP.find().select("name key description modules logo");
   res.json(erps);
 };
 
