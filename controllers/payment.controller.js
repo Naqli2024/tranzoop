@@ -97,13 +97,18 @@ exports.getPaymentsByBill = async (req, res) => {
     const { billId } = req.params;
     const { businessId } = req.user;
 
+    const bill = await Bill.findById(billId);
     const payments = await Payment.find({
       billId,
       businessId,
     }).sort({ createdAt: -1 });
 
     res.json({
-      count: payments.length,
+      billId: bill._id,
+      billNo: bill.billNo,
+      grandTotal: bill.grandTotal,
+      paidAmount: bill.paidAmount,
+      dueAmount: bill.dueAmount,
       payments,
     });
   } catch (err) {

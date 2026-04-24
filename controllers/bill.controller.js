@@ -65,11 +65,14 @@ exports.createBill = async (req, res) => {
       billItems.push({
         itemId: dbItem._id,
         itemName: dbItem.itemName,
+        uom: dbItem.uom,
+        hsn: dbItem.hsn,
         type: dbItem.type,
         quantity: i.quantity,
         price,
         gst: dbItem.gst,
         total,
+        cost: dbItem.cost
       });
     }
 

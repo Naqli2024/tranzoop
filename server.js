@@ -12,6 +12,7 @@ const payment = require("./routes/payment.routes");
 const workOrders = require("./routes/workorder.routes");
 const purchase = require("./routes/purchase.routes");
 const supplier = require("./routes/supplier.routes");
+const ledger = require("./routes/ledger.routes");
 const path = require("path");
 
 // environment variables
@@ -44,6 +45,7 @@ app.use("/api/payments", payment);
 app.use("/api/workorders", workOrders);
 app.use("/api/purchase", purchase);
 app.use("/api/suppliers", supplier);
+app.use("/api/ledger", ledger);
 
 const PORT = process.env.PORT;
 app.listen(PORT, () => {

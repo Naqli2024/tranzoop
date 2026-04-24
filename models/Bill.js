@@ -12,6 +12,7 @@ const billItemSchema = new mongoose.Schema(
     price: Number,
     gst: Number,
     total: Number,
+    cost: Number
   },
   { _id: false },
 );
