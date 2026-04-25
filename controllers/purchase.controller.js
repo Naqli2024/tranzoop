@@ -58,6 +58,8 @@ exports.createPurchase = async (req, res) => {
           businessId,
           itemName: i.itemName,
           category: i.category,
+          sku: i.sku,
+          hsn: i.hsn,
           gst: i.gst,
           mrp: i.rate,
           cost: i.rate,

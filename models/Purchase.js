@@ -5,7 +5,8 @@ const purchaseItemSchema = new mongoose.Schema(
     itemName: String,
     category: String,
     size: String,
-
+    sku: String,
+    hsn: String,
     quantity: Number,
     rate: Number,
     gst: Number,
