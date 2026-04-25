@@ -1,51 +1,42 @@
+const mongoose = require("mongoose");
 const Payment = require("../models/Payment");
 const Bill = require("../models/Bill");
 
 // ADD PAYMENT
 exports.addPayment = async (req, res) => {
+  const session = await mongoose.startSession();
+
   try {
+    session.startTransaction();
+
     const { businessId } = req.user;
     const { billId, amount, method } = req.body;
 
-    // Validate amount
     if (!amount || amount <= 0) {
-      return res.status(400).json({
-        message: "Valid amount is required",
-      });
+      throw new Error("Valid amount is required");
     }
 
-    const bill = await Bill.findOne({ _id: billId, businessId });
+    const bill = await Bill.findOne({ _id: billId, businessId }).session(session);
 
     if (!bill) {
-      return res.status(404).json({ message: "Bill not found" });
+      throw new Error("Bill not found");
     }
 
-    // if dueAmount not set
-    const currentDue =
-      bill.dueAmount && bill.dueAmount > 0
-        ? bill.dueAmount
-        : bill.grandTotal - bill.paidAmount;
+    const currentDue = bill.dueAmount; // always trust DB
 
-    // Already paid
     if (currentDue <= 0) {
-      return res.status(400).json({
-        message: "Bill already fully paid",
-      });
+      throw new Error("Bill already fully paid");
     }
 
-    // Prevent overpayment
     if (amount > currentDue) {
-      return res.status(400).json({
-        message: "Amount exceeds due",
-      });
+      throw new Error("Amount exceeds due");
     }
 
-    // Calculate updated values
-    const newPaidAmount = bill.paidAmount + amount;
-    const newDueAmount = bill.grandTotal - newPaidAmount;
+    // safe calculation
+    const newPaidAmount = Number((bill.paidAmount + amount).toFixed(2));
+    const newDueAmount = Number((bill.grandTotal - newPaidAmount).toFixed(2));
 
-    // Determine status
-    let status;
+    let status = "NOT_PAID";
 
     if (newPaidAmount === 0) {
       status = "NOT_PAID";
@@ -55,40 +46,53 @@ exports.addPayment = async (req, res) => {
       status = "PARTIAL";
     }
 
-    // Save Payment (history)
-    const payment = await Payment.create({
-      businessId,
-      billId,
-      amount,
-      method,
-      paymentStatus: status,
-    });
+    // Save payment
+    const payment = await Payment.create(
+      [
+        {
+          businessId,
+          billId,
+          amount,
+          method,
+          paymentStatus: status,
+        },
+      ],
+      { session }
+    );
 
-    // Maintain payment methods array
-    let methods = bill.paymentMethods || [];
-
-    if (!methods.includes(method)) {
-      methods.push(method);
+    // Update payment methods
+    if (!bill.paymentMethods.includes(method)) {
+      bill.paymentMethods.push(method);
     }
 
-    bill.paymentMethods = methods;
-
-    // Update financials
+    // Update bill
     bill.paidAmount = newPaidAmount;
     bill.dueAmount = newDueAmount;
     bill.paymentStatus = status;
 
-    await bill.save();
+    await bill.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.json({
-      message: "Payment recorded",
-      payment,
-      billStatus: status,
-      paidAmount: newPaidAmount,
-      dueAmount: newDueAmount,
+      message: "Payment recorded successfully",
+      payment: payment[0],
+      bill: {
+        billId: bill._id,
+        paidAmount: newPaidAmount,
+        dueAmount: newDueAmount,
+        status,
+      },
     });
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    await session.abortTransaction();
+    session.endSession();
+
+    res.status(400).json({
+      error: err.message,
+    });
   }
 };
 

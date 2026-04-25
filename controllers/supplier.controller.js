@@ -1,4 +1,7 @@
+const mongoose = require("mongoose");
 const Supplier = require("../models/Supplier");
+const Purchase = require("../models/Purchase");
+const SupplierPayment = require("../models/SupplierPayment");
 
 // ADD SUPPLIER
 exports.addSupplier = async (req, res) => {
@@ -108,5 +111,79 @@ exports.deleteSupplier = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+
+exports.addSupplierPayment = async (req, res) => {
+  const session = await mongoose.startSession();
+
+  try {
+    session.startTransaction();
+
+    const { businessId } = req.user;
+    const { purchaseId, amount, method } = req.body;
+
+    if (!amount || amount <= 0) {
+      throw new Error("Valid amount required");
+    }
+
+    const purchase = await Purchase.findOne({
+      _id: purchaseId,
+      businessId
+    }).session(session);
+
+    if (!purchase) throw new Error("Purchase not found");
+
+    const currentDue = purchase.dueAmount;
+
+    if (currentDue <= 0) {
+      throw new Error("Already fully paid");
+    }
+
+    if (amount > currentDue) {
+      throw new Error("Amount exceeds due");
+    }
+
+    const newPaid = purchase.paidAmount + amount;
+    const newDue = purchase.grandTotal - newPaid;
+
+    let status = "PENDING";
+
+    if (newDue === 0) status = "PAID";
+    else if (newPaid > 0) status = "PARTIAL";
+
+    const payment = await SupplierPayment.create([{
+      businessId,
+      supplierId: purchase.supplierId,
+      purchaseId,
+      amount,
+      method
+    }], { session });
+
+    purchase.paidAmount = newPaid;
+    purchase.dueAmount = newDue;
+    purchase.paymentStatus = status;
+
+    await purchase.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      message: "Supplier payment recorded",
+      payment: payment[0],
+      purchase: {
+        paidAmount: newPaid,
+        dueAmount: newDue,
+        status
+      }
+    });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+
+    res.status(400).json({ error: err.message });
   }
 };

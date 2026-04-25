@@ -81,7 +81,9 @@ exports.createPurchase = async (req, res) => {
       items,
       subTotal,
       gstTotal,
-      grandTotal
+      grandTotal,
+      paidAmount: 0,
+      dueAmount: grandTotal
     });
 
     res.status(201).json({

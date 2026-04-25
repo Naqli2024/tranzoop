@@ -15,4 +15,7 @@ router.put("/:id", auth, controller.updateSupplier);
 // Delete
 router.delete("/:id", auth, controller.deleteSupplier);
 
+// Supplier payment
+router.post("/payment", auth, controller.addSupplierPayment);
+
 module.exports = router;

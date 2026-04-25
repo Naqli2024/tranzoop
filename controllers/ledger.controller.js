@@ -4,6 +4,7 @@ const Purchase = require("../models/Purchase");
 const Customer = require("../models/Customer");
 const Supplier = require("../models/Supplier");
 const Item = require("../models/Item");
+const SupplierPayment = require("../models/SupplierPayment");
 
 // ==============================
 //  1. DASHBOARD SUMMARY
@@ -223,33 +224,98 @@ exports.getSupplierLedger = async (req, res) => {
     const { supplierId } = req.params;
 
     const purchases = await Purchase.find({ businessId, supplierId });
+    const payments = await SupplierPayment.find({ businessId, supplierId });
 
     let ledger = [];
-    let balance = 0;
 
-    purchases.forEach((p) => {
+    // PURCHASE = CREDIT
+    purchases.forEach(p => {
       ledger.push({
         date: p.createdAt,
         type: "PURCHASE",
         ref: p.purchaseNo,
         debit: 0,
-        credit: p.grandTotal,
-        balance: 0,
+        credit: p.grandTotal
       });
     });
 
-    ledger.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    ledger = ledger.map((l) => {
-      balance += l.credit - l.debit;
-      return { ...l, balance };
+    // PAYMENT = DEBIT
+    payments.forEach(p => {
+      ledger.push({
+        date: p.createdAt,
+        type: "PAYMENT",
+        ref: p.method,
+        debit: p.amount,
+        credit: 0
+      });
     });
 
-    res.json({ ledger, balance });
+    // SORT
+    ledger.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // RUNNING BALANCE
+    let balance = 0;
+
+    ledger = ledger.map(entry => {
+      balance += entry.credit - entry.debit;
+
+      return {
+        ...entry,
+        balance
+      };
+    });
+
+    res.json({
+      supplierId,
+      ledger,
+      totalPayable: balance
+    });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+
+exports.getAllSuppliersLedger = async (req, res) => {
+  try {
+    const { businessId } = req.user;
+
+    const suppliers = await Supplier.find({ businessId });
+
+    const result = [];
+
+    for (let s of suppliers) {
+
+      const purchases = await Purchase.find({
+        businessId,
+        supplierId: s._id
+      });
+
+      const payments = await SupplierPayment.find({
+        businessId,
+        supplierId: s._id
+      });
+
+      const totalPurchase = purchases.reduce((sum, p) => sum + p.grandTotal, 0);
+      const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+
+      result.push({
+        supplierId: s._id,
+        supplierName: s.name,
+        totalPurchase,
+        totalPaid,
+        balance: totalPurchase - totalPaid
+      });
+    }
+
+    res.json(result);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 
 exports.getRevenueSplit = async (req, res) => {
   try {

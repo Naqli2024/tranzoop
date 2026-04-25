@@ -15,6 +15,7 @@ router.get("/customer/:customerId", auth, controller.getCustomerLedgerById);
 
 // SUPPLIER LEDGER
 router.get("/supplier/:supplierId", auth, controller.getSupplierLedger);
+router.get("/suppliers", auth, controller.getAllSuppliersLedger);
 
 // ANALYTICS
 router.get("/revenue-split", auth, controller.getRevenueSplit);

@@ -15,15 +15,16 @@ exports.createBill = async (req, res) => {
   try {
     const { businessId, erpKey } = req.user;
 
-    const { customerId, items, discount = 0, paymentMethod } = req.body;
+    const {
+      customerId,
+      items,
+      workOrderId,
+      billingType = "ITEM",
+      discount = 0,
+      paymentMethod
+    } = req.body;
 
-    if (!items || items.length === 0) {
-      return res.status(400).json({ message: "Items required" });
-    }
-
-    // Check customer
     const customer = await Customer.findOne({ _id: customerId, businessId });
-
     if (!customer) {
       return res.status(404).json({ message: "Customer not found" });
     }
@@ -32,50 +33,149 @@ exports.createBill = async (req, res) => {
     let gstTotal = 0;
     let billItems = [];
 
-    // Loop items
-    for (let i of items) {
-      const dbItem = await Item.findOne({
-        _id: i.itemId,
-        businessId,
-      });
-
-      if (!dbItem) {
-        return res.status(404).json({ message: "Item not found" });
+    // ================================
+    // 1. ITEM BILLING (EXISTING)
+    // ================================
+    if (billingType === "ITEM") {
+      if (!items || items.length === 0) {
+        return res.status(400).json({ message: "Items required" });
       }
 
-      const price = dbItem.mrp;
-      const total = price * i.quantity;
-      const gstAmount = (total * (dbItem.gst || 0)) / 100;
+      for (let i of items) {
+        const dbItem = await Item.findOne({
+          _id: i.itemId,
+          businessId,
+        });
 
-      subTotal += total;
-      gstTotal += gstAmount;
-
-      // STOCK ONLY FOR PRODUCT
-      if (dbItem.type === "product") {
-        if (dbItem.openingStock < i.quantity) {
-          return res.status(400).json({
-            message: `Insufficient stock for ${dbItem.itemName}`,
-          });
+        if (!dbItem) {
+          return res.status(404).json({ message: "Item not found" });
         }
 
-        dbItem.openingStock -= i.quantity;
-        await dbItem.save();
-      }
+        const price = dbItem.mrp;
+        const total = price * i.quantity;
+        const gstAmount = (total * (dbItem.gst || 0)) / 100;
 
-      billItems.push({
-        itemId: dbItem._id,
-        itemName: dbItem.itemName,
-        uom: dbItem.uom,
-        hsn: dbItem.hsn,
-        type: dbItem.type,
-        quantity: i.quantity,
-        price,
-        gst: dbItem.gst,
-        total,
-        cost: dbItem.cost
-      });
+        subTotal += total;
+        gstTotal += gstAmount;
+
+        // STOCK
+        if (dbItem.type === "product") {
+          if (dbItem.openingStock < i.quantity) {
+            return res.status(400).json({
+              message: `Insufficient stock for ${dbItem.itemName}`,
+            });
+          }
+
+          dbItem.openingStock -= i.quantity;
+          await dbItem.save();
+        }
+
+        billItems.push({
+          itemId: dbItem._id,
+          itemName: dbItem.itemName,
+          type: dbItem.type,
+          quantity: i.quantity,
+          price,
+          gst: dbItem.gst,
+          total,
+          cost: dbItem.cost || 0
+        });
+      }
     }
 
+    // ================================
+    // 2. WORK ORDER BILLING
+    // ================================
+    if (billingType === "WORK_ORDER") {
+      const wo = await WorkOrder.findOne({
+        _id: workOrderId,
+        businessId
+      });
+
+      if (!wo) {
+        return res.status(404).json({ message: "Work order not found" });
+      }
+
+      // SERVICES
+      for (let s of wo.services || []) {
+        const total = s.price;
+        const gstAmount = (total * (s.gst || 0)) / 100;
+
+        subTotal += total;
+        gstTotal += gstAmount;
+
+        billItems.push({
+          itemName: s.name,
+          type: "service",
+          quantity: 1,
+          price: s.price,
+          gst: s.gst,
+          total,
+          cost: 0 
+        });
+      }
+
+      // OTHER SERVICE
+      if (wo.otherService?.price) {
+        const total = wo.otherService.price;
+        const gstAmount = (total * (wo.otherService.gst || 0)) / 100;
+
+        subTotal += total;
+        gstTotal += gstAmount;
+
+        billItems.push({
+          itemName: wo.otherService.description,
+          type: "service",
+          quantity: 1,
+          price: wo.otherService.price,
+          gst: wo.otherService.gst,
+          total,
+          cost: 0
+        });
+      }
+
+      // ADDITIONAL ITEMS
+      for (let a of wo.additionalItems || []) {
+        const total = a.price * a.qty;
+
+        subTotal += total;
+
+        billItems.push({
+          itemName: a.name,
+          type: "service",
+          quantity: a.qty,
+          price: a.price,
+          gst: 0,
+          total,
+          cost: 0
+        });
+      }
+
+      // TYRES → treat as product (optional)
+      for (let t of wo.tyres || []) {
+        const total = t.mrp * (t.quantity || 1);
+
+        subTotal += total;
+
+        billItems.push({
+          itemName: `${t.brand} ${t.size}`,
+          type: "product",
+          quantity: t.quantity || 1,
+          price: t.mrp,
+          gst: 0,
+          total,
+          cost: 0
+        });
+      }
+
+      // UPDATE WORK ORDER STATUS
+      wo.status = "BILLED";
+      await wo.save();
+    }
+
+    // ================================
+    // FINAL BILL
+    // ================================
     const grandTotal = subTotal + gstTotal - discount;
 
     const bill = await Bill.create({
@@ -89,13 +189,22 @@ exports.createBill = async (req, res) => {
       discount,
       grandTotal,
       paymentMethods: paymentMethod ? [paymentMethod] : [],
-      dueAmount: grandTotal,
+      dueAmount: grandTotal
     });
+
+    // LINK BILL TO WORK ORDER
+    if (billingType === "WORK_ORDER") {
+      await WorkOrder.findByIdAndUpdate(workOrderId, {
+        billId: bill._id,
+        status: "BILLED"
+      });
+    }
 
     res.status(201).json({
       message: "Bill created successfully",
-      bill,
+      bill
     });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
