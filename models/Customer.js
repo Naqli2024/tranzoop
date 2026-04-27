@@ -25,7 +25,8 @@ const customerSchema = new mongoose.Schema({
     type: String,
     enum: ["B2B", "B2C"],
     default: "B2C"
-  }
+  },
+  gstNo: String
 
 }, { timestamps: true });
 

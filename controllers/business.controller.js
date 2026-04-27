@@ -12,7 +12,7 @@ exports.registerBusiness = async (req, res) => {
   try {
     const { key } = req.params;
 
-    const { shopName, address, mobile, username, password } = req.body;
+    const { shopName, address, mobile, businessType, gstNo, username, password } = req.body;
 
     // Validate input
     if (!shopName || !mobile || !username || !password) {
