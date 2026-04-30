@@ -12,14 +12,18 @@ exports.addPayment = async (req, res) => {
     const { businessId } = req.user;
     const { billId, payments } = req.body;
 
-    // Validate
+    // Validate input
+    if (!billId) throw new Error("billId is required");
+
     if (!payments || !Array.isArray(payments) || payments.length === 0) {
       throw new Error("Payments array is required");
     }
 
-    const bill = await Bill.findOne({ _id: billId, businessId }).session(
-      session,
-    );
+    // Fetch bill
+    const bill = await Bill.findOne({
+      _id: billId,
+      businessId,
+    }).session(session);
 
     if (!bill) {
       throw new Error("Bill not found");
@@ -31,13 +35,15 @@ exports.addPayment = async (req, res) => {
       throw new Error("Bill already fully paid");
     }
 
-    // Total payment amount
-    const totalIncoming = payments.reduce((sum, p) => {
+    // Calculate total incoming
+    let totalIncoming = 0;
+
+    for (let p of payments) {
       if (!p.amount || p.amount <= 0) {
         throw new Error("Invalid payment amount");
       }
-      return sum + p.amount;
-    }, 0);
+      totalIncoming += p.amount;
+    }
 
     if (totalIncoming > currentDue) {
       throw new Error("Total payment exceeds due amount");
@@ -57,16 +63,27 @@ exports.addPayment = async (req, res) => {
       status = "PARTIAL";
     }
 
-    // Insert multiple payment records
-    const paymentDocs = payments.map((p) => ({
-      businessId,
-      billId,
-      amount: p.amount,
-      method: p.method,
-      paymentStatus: status,
-    }));
+    // Save payments ONE BY ONE (SAFE)
+    const savedPayments = [];
 
-    const savedPayments = await Payment.insertMany(paymentDocs, { session });
+    for (let p of payments) {
+      const payment = await Payment.create(
+        [
+          {
+            businessId,
+            billId: bill._id, 
+            customerId: bill.customerId,
+            amount: p.amount,
+            method: p.method,
+            paymentStatus: status,
+            reference: p.reference || null,
+          },
+        ],
+        { session }
+      );
+
+      savedPayments.push(payment[0]);
+    }
 
     // Update payment methods (unique)
     let methods = new Set(bill.paymentMethods || []);
@@ -92,6 +109,7 @@ exports.addPayment = async (req, res) => {
       payments: savedPayments,
       bill: {
         billId: bill._id,
+        customerName: bill.customerName,
         paidAmount: newPaidAmount,
         dueAmount: newDueAmount,
         status,

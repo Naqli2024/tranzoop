@@ -2,6 +2,7 @@ const Bill = require("../models/Bill");
 const Item = require("../models/Item");
 const Customer = require("../models/Customer");
 const WorkOrder = require("../models/WorkOrder");
+const Business = require("../models/Business");
 
 // Generate Bill No
 const generateBillNo = (erpKey = "INV") => {
@@ -450,5 +451,82 @@ exports.getBillByBillNo = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+
+exports.getInvoiceByBillNo = async (req, res) => {
+  try {
+    const { billNo } = req.body;
+
+    if (!billNo) {
+      return res.status(400).json({
+        message: "billNo is required",
+      });
+    }
+
+    // Get Bill
+    const bill = await Bill.findOne({ billNo }).lean();
+
+    if (!bill) {
+      return res.status(404).json({
+        message: "Bill not found",
+      });
+    }
+
+    // Get Customer
+    const customer = await Customer.findById(bill.customerId).lean();
+
+    // Get Business
+    const business = await Business.findById(bill.businessId).lean();
+
+    // Response (Invoice Format)
+    res.json({
+      invoice: {
+        billNo: bill.billNo,
+        date: bill.createdAt,
+
+        customer: {
+          name: bill.customerName,
+          mobile: customer?.mobile || "",
+          address: customer?.address || "",
+          gstNo: customer?.gstNo || "",
+        },
+
+        business: {
+          name: business?.shopName || "",
+          mobile: business?.mobile || "",
+          address: business?.address || "",
+          gstNo: business?.gstNo || "",
+          businessType: business?.businessType || "",
+        },
+
+        items: bill.items.map((i) => ({
+          itemName: i.itemName,
+          type: i.type,
+          quantity: i.quantity,
+          price: i.price,
+          gst: i.gst,
+          hsn: i.hsn,
+          uom: i.uom,
+          sku: i.sku,
+          total: i.total,
+        })),
+
+        summary: {
+          subTotal: bill.subTotal,
+          gstTotal: bill.gstTotal,
+          discount: bill.discount,
+          grandTotal: bill.grandTotal,
+          paidAmount: bill.paidAmount,
+          dueAmount: bill.dueAmount,
+          status: bill.paymentStatus,
+        },
+      },
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };

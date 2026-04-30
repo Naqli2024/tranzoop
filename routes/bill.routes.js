@@ -18,4 +18,7 @@ router.get("/customer/:customerId", auth, controller.getBillsByCustomerId);
 
 // Bill By BillNo
 router.get("/:billNo", auth, controller.getBillByBillNo);
+
+router.post("/invoice/by-billno", controller.getInvoiceByBillNo);
+
 module.exports = router;
