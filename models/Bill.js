@@ -9,6 +9,9 @@ const billItemSchema = new mongoose.Schema(
     itemName: String,
     type: String, // product / service
     quantity: Number,
+    sku: String,
+    hsn: String,
+    uom: String,
     price: Number,
     gst: Number,
     total: Number,

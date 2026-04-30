@@ -21,7 +21,7 @@ exports.createBill = async (req, res) => {
       workOrderId,
       billingType = "ITEM",
       discount = 0,
-      paymentMethod
+      paymentMethod,
     } = req.body;
 
     const customer = await Customer.findOne({ _id: customerId, businessId });
@@ -75,13 +75,13 @@ exports.createBill = async (req, res) => {
           itemName: dbItem.itemName,
           type: dbItem.type,
           quantity: i.quantity,
-          sku: i.sku,
-          hsn: i.hsn,
-          uom: i.uom,
+          sku: dbItem.sku,
+          hsn: dbItem.hsn,
+          uom: dbItem.uom,
           price,
           gst: dbItem.gst,
           total,
-          cost: dbItem.cost || 0
+          cost: dbItem.cost || 0,
         });
       }
     }
@@ -92,7 +92,7 @@ exports.createBill = async (req, res) => {
     if (billingType === "WORK_ORDER") {
       const wo = await WorkOrder.findOne({
         _id: workOrderId,
-        businessId
+        businessId,
       });
 
       if (!wo) {
@@ -114,7 +114,7 @@ exports.createBill = async (req, res) => {
           price: s.price,
           gst: s.gst,
           total,
-          cost: 0 
+          cost: 0,
         });
       }
 
@@ -133,7 +133,7 @@ exports.createBill = async (req, res) => {
           price: wo.otherService.price,
           gst: wo.otherService.gst,
           total,
-          cost: 0
+          cost: 0,
         });
       }
 
@@ -150,7 +150,7 @@ exports.createBill = async (req, res) => {
           price: a.price,
           gst: 0,
           total,
-          cost: 0
+          cost: 0,
         });
       }
 
@@ -167,7 +167,7 @@ exports.createBill = async (req, res) => {
           price: t.mrp,
           gst: 0,
           total,
-          cost: 0
+          cost: 0,
         });
       }
 
@@ -192,22 +192,21 @@ exports.createBill = async (req, res) => {
       discount,
       grandTotal,
       paymentMethods: paymentMethod ? [paymentMethod] : [],
-      dueAmount: grandTotal
+      dueAmount: grandTotal,
     });
 
     // LINK BILL TO WORK ORDER
     if (billingType === "WORK_ORDER") {
       await WorkOrder.findByIdAndUpdate(workOrderId, {
         billId: bill._id,
-        status: "BILLED"
+        status: "BILLED",
       });
     }
 
     res.status(201).json({
       message: "Bill created successfully",
-      bill
+      bill,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -426,7 +425,6 @@ exports.getBillsByCustomerId = async (req, res) => {
   }
 };
 
-
 // GET BILL BY BILL NO
 exports.getBillByBillNo = async (req, res) => {
   try {
@@ -435,22 +433,21 @@ exports.getBillByBillNo = async (req, res) => {
 
     const bill = await Bill.findOne({
       billNo,
-      businessId
+      businessId,
     })
       .populate("customerId", "fullName mobile address")
       .populate("items.itemId", "itemName sku");
 
     if (!bill) {
       return res.status(404).json({
-        message: "Bill not found"
+        message: "Bill not found",
       });
     }
 
     res.json({
       message: "Bill fetched successfully",
-      bill
+      bill,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

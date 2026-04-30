@@ -10,30 +10,41 @@ exports.addPayment = async (req, res) => {
     session.startTransaction();
 
     const { businessId } = req.user;
-    const { billId, amount, method } = req.body;
+    const { billId, payments } = req.body;
 
-    if (!amount || amount <= 0) {
-      throw new Error("Valid amount is required");
+    // Validate
+    if (!payments || !Array.isArray(payments) || payments.length === 0) {
+      throw new Error("Payments array is required");
     }
 
-    const bill = await Bill.findOne({ _id: billId, businessId }).session(session);
+    const bill = await Bill.findOne({ _id: billId, businessId }).session(
+      session,
+    );
 
     if (!bill) {
       throw new Error("Bill not found");
     }
 
-    const currentDue = bill.dueAmount; // always trust DB
+    const currentDue = bill.dueAmount;
 
     if (currentDue <= 0) {
       throw new Error("Bill already fully paid");
     }
 
-    if (amount > currentDue) {
-      throw new Error("Amount exceeds due");
+    // Total payment amount
+    const totalIncoming = payments.reduce((sum, p) => {
+      if (!p.amount || p.amount <= 0) {
+        throw new Error("Invalid payment amount");
+      }
+      return sum + p.amount;
+    }, 0);
+
+    if (totalIncoming > currentDue) {
+      throw new Error("Total payment exceeds due amount");
     }
 
-    // safe calculation
-    const newPaidAmount = Number((bill.paidAmount + amount).toFixed(2));
+    // New totals
+    const newPaidAmount = Number((bill.paidAmount + totalIncoming).toFixed(2));
     const newDueAmount = Number((bill.grandTotal - newPaidAmount).toFixed(2));
 
     let status = "NOT_PAID";
@@ -46,24 +57,25 @@ exports.addPayment = async (req, res) => {
       status = "PARTIAL";
     }
 
-    // Save payment
-    const payment = await Payment.create(
-      [
-        {
-          businessId,
-          billId,
-          amount,
-          method,
-          paymentStatus: status,
-        },
-      ],
-      { session }
-    );
+    // Insert multiple payment records
+    const paymentDocs = payments.map((p) => ({
+      businessId,
+      billId,
+      amount: p.amount,
+      method: p.method,
+      paymentStatus: status,
+    }));
 
-    // Update payment methods
-    if (!bill.paymentMethods.includes(method)) {
-      bill.paymentMethods.push(method);
-    }
+    const savedPayments = await Payment.insertMany(paymentDocs, { session });
+
+    // Update payment methods (unique)
+    let methods = new Set(bill.paymentMethods || []);
+
+    payments.forEach((p) => {
+      methods.add(p.method);
+    });
+
+    bill.paymentMethods = Array.from(methods);
 
     // Update bill
     bill.paidAmount = newPaidAmount;
@@ -77,7 +89,7 @@ exports.addPayment = async (req, res) => {
 
     res.json({
       message: "Payment recorded successfully",
-      payment: payment[0],
+      payments: savedPayments,
       bill: {
         billId: bill._id,
         paidAmount: newPaidAmount,
@@ -85,7 +97,6 @@ exports.addPayment = async (req, res) => {
         status,
       },
     });
-
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
