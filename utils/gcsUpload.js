@@ -6,10 +6,14 @@ const storage = new Storage({
 
 const bucketName = process.env.GCP_BUCKET_NAME;
 
+if (!bucketName) {
+  throw new Error("GCP_BUCKET_NAME is missing in .env");
+}
+
+const bucket = storage.bucket(bucketName);
+
 exports.uploadFile = async (file, businessId, erpKey) => {
   try {
-    const bucket = storage.bucket(bucketName);
-
     const fileName = `${erpKey}/${businessId}/${Date.now()}_${file.originalname}`;
 
     const blob = bucket.file(fileName);
@@ -33,5 +37,16 @@ exports.uploadFile = async (file, businessId, erpKey) => {
     });
   } catch (err) {
     throw err;
+  }
+};
+
+exports.deleteFile = async (fileUrl) => {
+  try {
+    const filePath = fileUrl.split(".com/")[1];
+    if (filePath) {
+      await bucket.file(filePath).delete();
+    }
+  } catch (err) {
+    console.log("Delete failed:", err.message);
   }
 };

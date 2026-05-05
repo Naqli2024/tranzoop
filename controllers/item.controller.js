@@ -2,14 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const Item = require("../models/Item");
 // const { uploadToGCS } = require("../utils/gcsUpload");
-const { uploadFile } = require("../utils/gcsUpload");
-const { Storage } = require("@google-cloud/storage");
-
-const storage = new Storage({
-  keyFilename: process.env.GCP_KEY_FILE,
-});
-
-const bucket = storage.bucket(process.env.GCP_BUCKET_NAME);
+const { uploadFile, deleteFile } = require("../utils/gcsUpload");
 
 // ADD ITEM
 exports.addItem = async (req, res) => {
@@ -106,6 +99,7 @@ exports.updateItem = async (req, res) => {
     const { id } = req.params;
     const { businessId, erpKey } = req.user;
 
+    // Find item
     const item = await Item.findOne({ _id: id, businessId });
 
     if (!item) {
@@ -119,26 +113,18 @@ exports.updateItem = async (req, res) => {
     // =========================
     if (req.file) {
       try {
-        // ✅ DELETE OLD IMAGE FROM GCS
+        // Delete old image (if exists)
         if (item.itemImage) {
-          const oldFilePath = item.itemImage.split(".com/")[1];
-
-          if (oldFilePath) {
-            await bucket.file(oldFilePath).delete();
-          }
+          await deleteFile(item.itemImage);
         }
-      } catch (err) {
-        console.log("Old image delete failed:", err.message);
-      }
 
-      // ✅ UPLOAD NEW IMAGE
-      try {
+        // Upload new image
         const newImageUrl = await uploadFile(req.file, businessId, erpKey);
         item.itemImage = newImageUrl;
-      } catch (uploadErr) {
+      } catch (err) {
         return res.status(500).json({
-          message: "Image upload failed",
-          error: uploadErr.message,
+          message: "Image update failed",
+          error: err.message,
         });
       }
     }
@@ -146,29 +132,32 @@ exports.updateItem = async (req, res) => {
     // =========================
     // UPDATE FIELDS
     // =========================
-    if (body.itemName !== undefined) item.itemName = body.itemName;
+    if (body.itemName !== undefined) item.itemName = body.itemName.trim();
     if (body.sku !== undefined) item.sku = body.sku;
     if (body.barCode !== undefined) item.barCode = body.barCode;
     if (body.category !== undefined) item.category = body.category;
     if (body.hsn !== undefined) item.hsn = body.hsn;
     if (body.uom !== undefined) item.uom = body.uom;
 
-    // ✅ numeric safety
+    // Numeric fields (safe conversion)
     if (body.gst !== undefined) item.gst = Number(body.gst);
     if (body.mrp !== undefined) item.mrp = Number(body.mrp);
     if (body.cost !== undefined) item.cost = Number(body.cost);
     if (body.margin !== undefined) item.margin = Number(body.margin);
-    if (body.openingStock !== undefined)
+    if (body.openingStock !== undefined) {
       item.openingStock = Number(body.openingStock);
+    }
 
     await item.save();
 
-    res.json({
+    res.status(200).json({
       message: "Item updated successfully",
       item,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 
