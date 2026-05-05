@@ -1,7 +1,14 @@
 const { Storage } = require("@google-cloud/storage");
+const fs = require("fs");
+
+// DEBUG LOGS 
+console.log("KEY PATH:", process.env.GCP_KEY_FILE);
+console.log("KEY EXISTS:", fs.existsSync(process.env.GCP_KEY_FILE));
+console.log("BUCKET NAME:", process.env.GCP_BUCKET_NAME);
 
 const storage = new Storage({
-  keyFilename: process.env.GCP_KEY_FILE,
+  projectId: "tranzoop",
+  credentials: require(process.env.GCP_KEY_FILE),
 });
 
 const getBucket = () => {
