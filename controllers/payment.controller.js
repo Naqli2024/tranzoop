@@ -4,124 +4,78 @@ const Bill = require("../models/Bill");
 
 // ADD PAYMENT
 exports.addPayment = async (req, res) => {
-  const session = await mongoose.startSession();
-
   try {
-    session.startTransaction();
-
     const { businessId } = req.user;
     const { billId, payments } = req.body;
 
-    // Validate input
-    if (!billId) throw new Error("billId is required");
-
     if (!payments || !Array.isArray(payments) || payments.length === 0) {
-      throw new Error("Payments array is required");
+      return res.status(400).json({ message: "Payments array required" });
     }
 
-    // Fetch bill
-    const bill = await Bill.findOne({
-      _id: billId,
-      businessId,
-    }).session(session);
+    const bill = await Bill.findOne({ _id: billId, businessId });
 
     if (!bill) {
-      throw new Error("Bill not found");
+      return res.status(404).json({ message: "Bill not found" });
     }
 
     const currentDue = bill.dueAmount;
 
     if (currentDue <= 0) {
-      throw new Error("Bill already fully paid");
+      return res.status(400).json({ message: "Already paid" });
     }
 
-    // Calculate total incoming
-    let totalIncoming = 0;
-
-    for (let p of payments) {
+    const totalIncoming = payments.reduce((sum, p) => {
       if (!p.amount || p.amount <= 0) {
-        throw new Error("Invalid payment amount");
+        throw new Error("Invalid amount");
       }
-      totalIncoming += p.amount;
-    }
+      return sum + p.amount;
+    }, 0);
 
     if (totalIncoming > currentDue) {
-      throw new Error("Total payment exceeds due amount");
+      return res.status(400).json({ message: "Exceeds due" });
     }
 
-    // New totals
     const newPaidAmount = Number((bill.paidAmount + totalIncoming).toFixed(2));
     const newDueAmount = Number((bill.grandTotal - newPaidAmount).toFixed(2));
 
-    let status = "NOT_PAID";
+    let status = "PARTIAL";
+    if (newDueAmount === 0) status = "PAID";
 
-    if (newPaidAmount === 0) {
-      status = "NOT_PAID";
-    } else if (newDueAmount === 0) {
-      status = "PAID";
-    } else {
-      status = "PARTIAL";
-    }
+    // Save payments
+    const paymentDocs = payments.map(p => ({
+      businessId,
+      billId,
+      customerId: bill.customerId,
+      amount: p.amount,
+      method: p.method,
+      paymentStatus: status
+    }));
 
-    // Save payments ONE BY ONE (SAFE)
-    const savedPayments = [];
-
-    for (let p of payments) {
-      const payment = await Payment.create(
-        [
-          {
-            businessId,
-            billId: bill._id, 
-            customerId: bill.customerId,
-            amount: p.amount,
-            method: p.method,
-            paymentStatus: status,
-            reference: p.reference || null,
-          },
-        ],
-        { session }
-      );
-
-      savedPayments.push(payment[0]);
-    }
-
-    // Update payment methods (unique)
-    let methods = new Set(bill.paymentMethods || []);
-
-    payments.forEach((p) => {
-      methods.add(p.method);
-    });
-
-    bill.paymentMethods = Array.from(methods);
+    const savedPayments = await Payment.insertMany(paymentDocs);
 
     // Update bill
+    const methods = new Set(bill.paymentMethods || []);
+    payments.forEach(p => methods.add(p.method));
+
+    bill.paymentMethods = [...methods];
     bill.paidAmount = newPaidAmount;
     bill.dueAmount = newDueAmount;
     bill.paymentStatus = status;
 
-    await bill.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
+    await bill.save();
 
     res.json({
-      message: "Payment recorded successfully",
+      message: "Payment added",
       payments: savedPayments,
       bill: {
-        billId: bill._id,
-        customerName: bill.customerName,
         paidAmount: newPaidAmount,
         dueAmount: newDueAmount,
-        status,
-      },
+        status
+      }
     });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
 
-    res.status(400).json({
-      error: err.message,
-    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 };
 

@@ -2,7 +2,14 @@ const fs = require("fs");
 const path = require("path");
 const Item = require("../models/Item");
 // const { uploadToGCS } = require("../utils/gcsUpload");
-const { uploadFile } = require("../utils/fileUpload");
+const { uploadFile } = require("../utils/gcsUpload");
+const { Storage } = require("@google-cloud/storage");
+
+const storage = new Storage({
+  keyFilename: process.env.GCP_KEY_FILE,
+});
+
+const bucket = storage.bucket(process.env.GCP_BUCKET_NAME);
 
 // ADD ITEM
 exports.addItem = async (req, res) => {
@@ -19,20 +26,26 @@ exports.addItem = async (req, res) => {
     // Check duplicate
     const existingItem = await Item.findOne({
       businessId,
-      itemName: itemName.trim()
+      itemName: itemName.trim(),
     });
 
     if (existingItem) {
       return res.status(400).json({
-        message: "Item already exists with same name"
+        message: "Item already exists with same name",
       });
     }
 
     let imageUrl = "";
 
     if (req.file) {
-    //   imageUrl = await uploadToGCS(req.file, businessId, erpKey);
-    imageUrl = await uploadFile(req.file, businessId, erpKey);
+      try {
+        imageUrl = await uploadFile(req.file, businessId, erpKey);
+      } catch (uploadErr) {
+        return res.status(500).json({
+          message: "Image upload failed",
+          error: uploadErr.message,
+        });
+      }
     }
 
     const item = await Item.create({
@@ -50,19 +63,18 @@ exports.addItem = async (req, res) => {
       mrp: req.body.mrp,
       cost: req.body.cost,
       margin: req.body.margin,
-      openingStock: req.body.openingStock
+      openingStock: req.body.openingStock,
     });
 
     res.status(201).json({
       message: "Item created",
-      item
+      item,
     });
-
   } catch (err) {
-    // Handle duplicate index error 
+    // Handle duplicate index error
     if (err.code === 11000) {
       return res.status(400).json({
-        message: "Item already exists (duplicate)"
+        message: "Item already exists (duplicate)",
       });
     }
     res.status(500).json({ error: err.message });
@@ -74,17 +86,15 @@ exports.getAllItems = async (req, res) => {
   try {
     const { businessId } = req.user;
 
-    const items = await Item.find({ businessId })
-      .sort({
-        isFavorite: -1,      // favorites first
-        favoriteCount: -1,   // most favorited
-        viewCount: -1,       // most viewed
-        searchCount: -1,     // most searched
-        createdAt: -1        // newest
-      });
+    const items = await Item.find({ businessId }).sort({
+      isFavorite: -1, // favorites first
+      favoriteCount: -1, // most favorited
+      viewCount: -1, // most viewed
+      searchCount: -1, // most searched
+      createdAt: -1, // newest
+    });
 
     res.json(items);
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -102,47 +112,59 @@ exports.updateItem = async (req, res) => {
       return res.status(404).json({ message: "Item not found" });
     }
 
-    // Always make body safe
     const body = req.body || {};
 
     // =========================
-    // HANDLE IMAGE UPDATE
+    // HANDLE IMAGE UPDATE (GCS)
     // =========================
     if (req.file) {
-      // Delete old image (if exists)
-      if (item.itemImage) {
-        const oldPath = path.join(__dirname, "..", item.itemImage);
+      try {
+        // ✅ DELETE OLD IMAGE FROM GCS
+        if (item.itemImage) {
+          const oldFilePath = item.itemImage.split(".com/")[1];
 
-        if (fs.existsSync(oldPath)) {
-          fs.unlinkSync(oldPath);
+          if (oldFilePath) {
+            await bucket.file(oldFilePath).delete();
+          }
         }
+      } catch (err) {
+        console.log("Old image delete failed:", err.message);
       }
 
-      // Upload new image
-      const newImageUrl = await uploadFile(req.file, businessId, erpKey);
-      item.itemImage = newImageUrl;
+      // ✅ UPLOAD NEW IMAGE
+      try {
+        const newImageUrl = await uploadFile(req.file, businessId, erpKey);
+        item.itemImage = newImageUrl;
+      } catch (uploadErr) {
+        return res.status(500).json({
+          message: "Image upload failed",
+          error: uploadErr.message,
+        });
+      }
     }
 
     // =========================
-    // UPDATE ONLY PROVIDED FIELDS
+    // UPDATE FIELDS
     // =========================
     if (body.itemName !== undefined) item.itemName = body.itemName;
     if (body.sku !== undefined) item.sku = body.sku;
     if (body.barCode !== undefined) item.barCode = body.barCode;
     if (body.category !== undefined) item.category = body.category;
     if (body.hsn !== undefined) item.hsn = body.hsn;
-    if (body.gst !== undefined) item.gst = body.gst;
     if (body.uom !== undefined) item.uom = body.uom;
-    if (body.mrp !== undefined) item.mrp = body.mrp;
-    if (body.cost !== undefined) item.cost = body.cost;
-    if (body.margin !== undefined) item.margin = body.margin;
+
+    // ✅ numeric safety
+    if (body.gst !== undefined) item.gst = Number(body.gst);
+    if (body.mrp !== undefined) item.mrp = Number(body.mrp);
+    if (body.cost !== undefined) item.cost = Number(body.cost);
+    if (body.margin !== undefined) item.margin = Number(body.margin);
     if (body.openingStock !== undefined)
-      item.openingStock = body.openingStock;
+      item.openingStock = Number(body.openingStock);
 
     await item.save();
 
     res.json({
-      message: "Item updated",
+      message: "Item updated successfully",
       item,
     });
   } catch (err) {
@@ -158,7 +180,7 @@ exports.deleteItem = async (req, res) => {
 
     const item = await Item.findOneAndDelete({
       _id: id,
-      businessId
+      businessId,
     });
 
     if (!item) {
@@ -166,7 +188,6 @@ exports.deleteItem = async (req, res) => {
     }
 
     res.json({ message: "Item deleted" });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -194,14 +215,12 @@ exports.toggleFavorite = async (req, res) => {
 
     res.json({
       message: "Favorite updated",
-      isFavorite: item.isFavorite
+      isFavorite: item.isFavorite,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
-
 
 // INCREMENT VIEW COUNT
 exports.incrementView = async (req, res) => {
@@ -212,7 +231,7 @@ exports.incrementView = async (req, res) => {
     const item = await Item.findOneAndUpdate(
       { _id: itemId, businessId },
       { $inc: { viewCount: 1 } },
-      { new: true }
+      { new: true },
     );
 
     if (!item) {
@@ -221,14 +240,12 @@ exports.incrementView = async (req, res) => {
 
     res.json({
       message: "View counted",
-      viewCount: item.viewCount
+      viewCount: item.viewCount,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
-
 
 // SEARCH ITEMS + TRACK SEARCH COUNT
 exports.searchItems = async (req, res) => {
@@ -238,7 +255,7 @@ exports.searchItems = async (req, res) => {
 
     if (!search) {
       return res.status(400).json({
-        message: "Search keyword is required"
+        message: "Search keyword is required",
       });
     }
 
@@ -247,8 +264,8 @@ exports.searchItems = async (req, res) => {
       $or: [
         { itemName: { $regex: search, $options: "i" } },
         { sku: { $regex: search, $options: "i" } },
-        { barCode: { $regex: search, $options: "i" } }
-      ]
+        { barCode: { $regex: search, $options: "i" } },
+      ],
     };
 
     // Get matching items
@@ -256,14 +273,13 @@ exports.searchItems = async (req, res) => {
 
     // Increment search count
     await Item.updateMany(query, {
-      $inc: { searchCount: 1 }
+      $inc: { searchCount: 1 },
     });
 
     res.json({
       count: items.length,
-      items
+      items,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

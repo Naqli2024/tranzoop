@@ -1,29 +1,37 @@
 const { Storage } = require("@google-cloud/storage");
-const path = require("path");
 
 const storage = new Storage({
-  keyFilename: process.env.GCS_KEY_FILE, // JSON file path
+  keyFilename: process.env.GCP_KEY_FILE,
 });
 
-const bucket = storage.bucket(process.env.GCS_BUCKET);
+const bucketName = process.env.GCP_BUCKET_NAME;
 
-exports.uploadToGCS = async (file, businessId, erpKey) => {
-  const fileName = `${erpKey}/${businessId}/${Date.now()}_${file.originalname}`;
+exports.uploadFile = async (file, businessId, erpKey) => {
+  try {
+    const bucket = storage.bucket(bucketName);
 
-  const blob = bucket.file(fileName);
+    const fileName = `${erpKey}/${businessId}/${Date.now()}_${file.originalname}`;
 
-  const blobStream = blob.createWriteStream({
-    resumable: false,
-  });
+    const blob = bucket.file(fileName);
 
-  return new Promise((resolve, reject) => {
-    blobStream.on("error", reject);
-
-    blobStream.on("finish", () => {
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
-      resolve(publicUrl);
+    const blobStream = blob.createWriteStream({
+      resumable: false,
+      contentType: file.mimetype,
     });
 
-    blobStream.end(file.buffer);
-  });
+    return new Promise((resolve, reject) => {
+      blobStream.on("error", reject);
+
+      blobStream.on("finish", async () => {
+        await blob.makePublic();
+
+        const publicUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+        resolve(publicUrl);
+      });
+
+      blobStream.end(file.buffer);
+    });
+  } catch (err) {
+    throw err;
+  }
 };
