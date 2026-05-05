@@ -4,9 +4,11 @@ if (!global.crypto) {
 global.crypto = crypto.webcrypto;
 }
 
+// environment variables
+require("dotenv").config();
+
 const express = require("express");
 const mongoose = require("mongoose");
-const env = require("dotenv");
 const cors = require("cors");
 const erp = require("./routes/erp.routes");
 const business = require("./routes/business.routes");
@@ -20,9 +22,6 @@ const purchase = require("./routes/purchase.routes");
 const supplier = require("./routes/supplier.routes");
 const ledger = require("./routes/ledger.routes");
 const path = require("path");
-
-// environment variables
-env.config();
 
 const app = express();
 app.use(express.json());
