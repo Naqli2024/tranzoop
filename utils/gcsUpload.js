@@ -4,9 +4,9 @@ const storage = new Storage({
   keyFilename: process.env.GCP_KEY_FILE,
 });
 
-const bucketName = process.env.GCP_BUCKET_NAME;
-
 const getBucket = () => {
+  const bucketName = process.env.GCP_BUCKET_NAME;
+
   if (!bucketName) {
     throw new Error("GCP_BUCKET_NAME missing");
   }
@@ -29,6 +29,7 @@ exports.uploadFile = async (file, businessId, erpKey) => {
 
     blobStream.on("finish", async () => {
       await blob.makePublic();
+      const bucketName = process.env.GCP_BUCKET_NAME;
       resolve(`https://storage.googleapis.com/${bucketName}/${fileName}`);
     });
 
