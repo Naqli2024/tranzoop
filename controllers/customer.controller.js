@@ -1,4 +1,5 @@
 const Customer = require("../models/Customer");
+const Bill = require("../models/Bill");
 
 // Add Customer
 exports.addCustomer = async (req, res) => {
@@ -51,6 +52,84 @@ exports.getCustomerById = async (req, res) => {
       return res.status(404).json({ message: "No customer found" });
     }
     return res.status(200).json(customer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Update customer by Id
+exports.updateCustomer = async (req, res) => {
+  try {
+    const { businessId } = req.user;
+    const { id } = req.params;
+
+    const { fullName, mobile } = req.body;
+
+    // Check existing customer
+    const customer = await Customer.findOne({ _id: id, businessId });
+
+    if (!customer) {
+      return res.status(404).json({
+        message: "Customer not found",
+      });
+    }
+
+    // Prevent duplicate mobile (if changed)
+    if (mobile && mobile !== customer.mobile) {
+      const existing = await Customer.findOne({ businessId, mobile });
+
+      if (existing) {
+        return res.status(400).json({
+          message: "Mobile already used by another customer",
+        });
+      }
+    }
+
+    // Update fields (only what is sent)
+    Object.assign(customer, req.body);
+
+    await customer.save();
+
+    res.json({
+      message: "Customer updated successfully",
+      customer,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Delete customer by Id
+exports.deleteCustomer = async (req, res) => {
+  try {
+    const { businessId } = req.user;
+    const { id } = req.params;
+
+    const customer = await Customer.findOne({ _id: id, businessId });
+
+    if (!customer) {
+      return res.status(404).json({
+        message: "Customer not found",
+      });
+    }
+
+    // Check if used in bills
+    const billExists = await Bill.findOne({
+      customerId: id,
+      businessId,
+    });
+
+    if (billExists) {
+      return res.status(400).json({
+        message: "Cannot delete customer with existing bills",
+      });
+    }
+
+    await Customer.deleteOne({ _id: id });
+
+    res.json({
+      message: "Customer deleted successfully",
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
