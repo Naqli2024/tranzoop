@@ -21,6 +21,6 @@ router.get("/:billNo", auth, controller.getBillByBillNo);
 
 router.post("/invoice/by-billno", controller.getInvoiceByBillNo);
 
-router.delete("/:billId", controller.deleteBill);
+router.delete("/:billId", auth, controller.deleteBill);
 
 module.exports = router;
