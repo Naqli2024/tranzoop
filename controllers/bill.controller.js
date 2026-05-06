@@ -3,6 +3,7 @@ const Item = require("../models/Item");
 const Customer = require("../models/Customer");
 const WorkOrder = require("../models/WorkOrder");
 const Business = require("../models/Business");
+const Payment = require("../models/Payment");
 
 // Generate Bill No
 const generateBillNo = (erpKey = "INV") => {
@@ -524,6 +525,54 @@ exports.getInvoiceByBillNo = async (req, res) => {
         },
       },
     });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+};
+
+exports.deleteBill = async (req, res) => {
+  try {
+    const { businessId } = req.user;
+    const { billId } = req.params;
+
+    // 1. Find bill
+    const bill = await Bill.findOne({
+      _id: billId,
+      businessId,
+    });
+
+    if (!bill) {
+      return res.status(404).json({ message: "Bill not found" });
+    }
+
+    // 2. (Recommended) Restore stock
+    for (let i of bill.items) {
+      if (i.type === "product" && i.itemId) {
+        await Item.findByIdAndUpdate(i.itemId, {
+          $inc: { openingStock: i.quantity },
+        });
+      }
+    }
+
+    // 3. Delete payments
+    await Payment.deleteMany({
+      businessId,
+      billId: bill._id,
+    });
+
+    // 4. Delete bill
+    await Bill.deleteOne({
+      _id: bill._id,
+      businessId,
+    });
+
+    res.json({
+      message: "Bill and related payments deleted successfully",
+      deletedBillId: bill._id,
+    });
+
   } catch (err) {
     res.status(500).json({
       error: err.message,

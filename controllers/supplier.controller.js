@@ -116,63 +116,71 @@ exports.deleteSupplier = async (req, res) => {
 
 
 exports.addSupplierPayment = async (req, res) => {
-  const session = await mongoose.startSession();
-
   try {
-    session.startTransaction();
-
     const { businessId } = req.user;
-    const { purchaseId, amount, method } = req.body;
+    const { purchaseId, payments } = req.body;
 
-    if (!amount || amount <= 0) {
-      throw new Error("Valid amount required");
+    // Validate
+    if (!payments || !Array.isArray(payments) || payments.length === 0) {
+      return res.status(400).json({ message: "Payments array required" });
     }
 
     const purchase = await Purchase.findOne({
       _id: purchaseId,
       businessId
-    }).session(session);
+    });
 
-    if (!purchase) throw new Error("Purchase not found");
+    if (!purchase) {
+      return res.status(404).json({ message: "Purchase not found" });
+    }
 
     const currentDue = purchase.dueAmount;
 
     if (currentDue <= 0) {
-      throw new Error("Already fully paid");
+      return res.status(400).json({ message: "Already fully paid" });
     }
 
-    if (amount > currentDue) {
-      throw new Error("Amount exceeds due");
+    // Total incoming
+    const totalIncoming = payments.reduce((sum, p) => {
+      if (!p.amount || p.amount <= 0) {
+        throw new Error("Invalid payment amount");
+      }
+      return sum + p.amount;
+    }, 0);
+
+    if (totalIncoming > currentDue) {
+      return res.status(400).json({ message: "Exceeds due amount" });
     }
 
-    const newPaid = purchase.paidAmount + amount;
-    const newDue = purchase.grandTotal - newPaid;
+    // Calculate new totals
+    const newPaid = Number((purchase.paidAmount + totalIncoming).toFixed(2));
+    const newDue = Number((purchase.grandTotal - newPaid).toFixed(2));
 
     let status = "PENDING";
-
     if (newDue === 0) status = "PAID";
     else if (newPaid > 0) status = "PARTIAL";
 
-    const payment = await SupplierPayment.create([{
+    // Save multiple payments
+    const paymentDocs = payments.map(p => ({
       businessId,
       supplierId: purchase.supplierId,
       purchaseId,
-      amount,
-      method
-    }], { session });
+      amount: p.amount,
+      method: p.method
+    }));
 
+    const savedPayments = await SupplierPayment.insertMany(paymentDocs);
+
+    // Update purchase
     purchase.paidAmount = newPaid;
     purchase.dueAmount = newDue;
     purchase.paymentStatus = status;
 
-    await purchase.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
+    await purchase.save();
 
     res.json({
-      message: "Supplier payment recorded",
-      payment: payment[0],
+      message: "Supplier payments recorded",
+      payments: savedPayments,
       purchase: {
         paidAmount: newPaid,
         dueAmount: newDue,
@@ -181,9 +189,6 @@ exports.addSupplierPayment = async (req, res) => {
     });
 
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-
     res.status(400).json({ error: err.message });
   }
 };

@@ -7,6 +7,9 @@ const upload = require("../middleware/upload");
 // Add item (with image)
 router.post("/add", auth, upload.single("itemImage"), controller.addItem);
 
+// itemImage
+router.get("/image", controller.getItemImage);
+
 // Get all items
 router.get("/all", auth, controller.getAllItems);
 

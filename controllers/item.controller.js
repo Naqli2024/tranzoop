@@ -2,13 +2,12 @@ const fs = require("fs");
 const path = require("path");
 const Item = require("../models/Item");
 // const { uploadToGCS } = require("../utils/gcsUpload");
-const { uploadFile, deleteFile } = require("../utils/gcsUpload");
+const { uploadFile, deleteFile, getSignedUrl } = require("../utils/gcsUpload");
 
 // ADD ITEM
 exports.addItem = async (req, res) => {
   try {
     const { businessId, erpKey } = req.user;
-
     const { itemName } = req.body;
 
     // Basic validation
@@ -28,11 +27,15 @@ exports.addItem = async (req, res) => {
       });
     }
 
-    let imageUrl = "";
+    let imagePath = ""; // store path (not URL)
+    let imageUrl = "";  // temporary signed URL
 
     if (req.file) {
       try {
-        imageUrl = await uploadFile(req.file, businessId, erpKey);
+        const result = await uploadFile(req.file, businessId, erpKey);
+
+        imagePath = result.filePath; // store this in DB
+        imageUrl = result.fileUrl;   // send to frontend
       } catch (uploadErr) {
         return res.status(500).json({
           message: "Image upload failed",
@@ -44,8 +47,7 @@ exports.addItem = async (req, res) => {
     const item = await Item.create({
       businessId,
       erpKey,
-      itemImage: imageUrl,
-
+      itemImage: imagePath, // store filePath instead of URL
       itemName: req.body.itemName,
       sku: req.body.sku,
       barCode: req.body.barCode,
@@ -62,14 +64,33 @@ exports.addItem = async (req, res) => {
     res.status(201).json({
       message: "Item created",
       item,
+      // return signed URL separately
+      imageUrl, 
     });
+
   } catch (err) {
-    // Handle duplicate index error
     if (err.code === 11000) {
       return res.status(400).json({
         message: "Item already exists (duplicate)",
       });
     }
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// getItemImage
+exports.getItemImage = async (req, res) => {
+  try {
+    const { filePath } = req.query;
+
+    if (!filePath) {
+      return res.status(400).json({ message: "filePath required" });
+    }
+
+    const url = await getSignedUrl(filePath);
+
+    res.json({ url });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };

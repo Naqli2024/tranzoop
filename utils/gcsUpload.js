@@ -1,13 +1,13 @@
 const { Storage } = require("@google-cloud/storage");
 const fs = require("fs");
 
-// DEBUG LOGS 
-console.log("KEY PATH:", process.env.GCP_KEY_FILE);
-console.log("KEY EXISTS:", fs.existsSync(process.env.GCP_KEY_FILE));
-console.log("BUCKET NAME:", process.env.GCP_BUCKET_NAME);
+// // DEBUG LOGS
+// console.log("KEY PATH:", process.env.GCP_KEY_FILE);
+// console.log("KEY EXISTS:", fs.existsSync(process.env.GCP_KEY_FILE));
+// console.log("BUCKET NAME:", process.env.GCP_BUCKET_NAME);
 
 const storage = new Storage({
-  projectId: "tranzoop",
+  projectId: process.env.GCP_PROJECT_ID,
   credentials: require(process.env.GCP_KEY_FILE),
 });
 
@@ -35,13 +35,37 @@ exports.uploadFile = async (file, businessId, erpKey) => {
     blobStream.on("error", reject);
 
     blobStream.on("finish", async () => {
-      await blob.makePublic();
-      const bucketName = process.env.GCP_BUCKET_NAME;
-      resolve(`https://storage.googleapis.com/${bucketName}/${fileName}`);
+      try {
+        // Signed URL (valid for 1 hour)
+        const [url] = await blob.getSignedUrl({
+          action: "read",
+          expires: Date.now() + 60 * 60 * 1000,
+        });
+
+        resolve({
+          fileUrl: url, // use this in frontend
+          filePath: fileName, // store this in DB
+        });
+      } catch (err) {
+        reject(err);
+      }
     });
 
     blobStream.end(file.buffer);
   });
+};
+
+// Generate signed URL later using filePath
+exports.getSignedUrl = async (filePath) => {
+  const bucket = getBucket();
+  const file = bucket.file(filePath);
+
+  const [url] = await file.getSignedUrl({
+    action: "read",
+    expires: Date.now() + 60 * 60 * 1000, // 1 hour
+  });
+
+  return url;
 };
 
 exports.deleteFile = async (fileUrl) => {
