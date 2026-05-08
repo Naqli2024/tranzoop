@@ -7,6 +7,6 @@ router.post("/add", auth, controller.addCustomer);
 router.get("/", auth, controller.getCustomers);
 router.get("/:id", auth, controller.getCustomerById);
 router.put("/:id", auth, controller.updateCustomer);
-router.delete("/:id", auth, controller.deleteCustomer);
+router.put("/disable/:id", auth, controller.disableCustomer);
 
 module.exports = router;

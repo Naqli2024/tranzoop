@@ -100,12 +100,16 @@ exports.updateCustomer = async (req, res) => {
 };
 
 // Delete customer by Id
-exports.deleteCustomer = async (req, res) => {
+exports.disableCustomer = async (req, res) => {
   try {
     const { businessId } = req.user;
     const { id } = req.params;
 
-    const customer = await Customer.findOne({ _id: id, businessId });
+    const customer = await Customer.findOneAndUpdate(
+      { _id: id, businessId },
+      { isActive: false },
+      { new: true }
+    );
 
     if (!customer) {
       return res.status(404).json({
@@ -113,24 +117,14 @@ exports.deleteCustomer = async (req, res) => {
       });
     }
 
-    // Check if used in bills
-    const billExists = await Bill.findOne({
-      customerId: id,
-      businessId,
-    });
-
-    if (billExists) {
-      return res.status(400).json({
-        message: "Cannot delete customer with existing bills",
-      });
-    }
-
-    await Customer.deleteOne({ _id: id });
-
     res.json({
-      message: "Customer deleted successfully",
+      message: "Customer disabled successfully",
+      customer,
     });
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
