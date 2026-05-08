@@ -489,6 +489,7 @@ exports.getInvoiceByBillNo = async (req, res) => {
 
         customer: {
           name: bill.customerName,
+          company: customer?.companyName,
           mobile: customer?.mobile || "",
           address: customer?.address || "",
           gstNo: customer?.gstNo || "",
