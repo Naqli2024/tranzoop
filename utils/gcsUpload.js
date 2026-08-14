@@ -1,82 +1,93 @@
 const { Storage } = require("@google-cloud/storage");
-const fs = require("fs");
 
-// // DEBUG LOGS
-// console.log("KEY PATH:", process.env.GCP_KEY_FILE);
-// console.log("KEY EXISTS:", fs.existsSync(process.env.GCP_KEY_FILE));
-// console.log("BUCKET NAME:", process.env.GCP_BUCKET_NAME);
+const storageConfigs = JSON.parse(
+  process.env.GCP_STORAGE_CONFIGS || "{}"
+);
 
-const storage = new Storage({
-  projectId: process.env.GCP_PROJECT_ID,
-  credentials: require(process.env.GCP_KEY_FILE),
-});
-
-const getBucket = () => {
-  const bucketName = process.env.GCP_BUCKET_NAME;
-
-  if (!bucketName) {
-    throw new Error("GCP_BUCKET_NAME missing");
+const getBucket = (businessId) => {
+  if (!businessId) {
+    throw new Error("Business ID is required for GCP storage");
   }
-  return storage.bucket(bucketName);
+
+  const config = storageConfigs[businessId];
+
+  if (!config) {
+    throw new Error(
+      `GCP storage configuration not found for businessId: ${businessId}`
+    );
+  }
+
+  const storage = new Storage({
+    projectId: config.projectId,
+    keyFilename: config.credentials,
+  });
+
+  return storage.bucket(config.bucket);
 };
 
-exports.uploadFile = async (file, businessId, erpKey) => {
-  const bucket = getBucket();
+exports.uploadFile = async (file, businessId, folder) => {
+  const bucket = getBucket(businessId);
 
-  const fileName = `${erpKey}/${businessId}/${Date.now()}_${file.originalname}`;
+  const fileName = `businesses/${businessId}/${folder}/${Date.now()}-${file.originalname}`;
+
   const blob = bucket.file(fileName);
 
-  const blobStream = blob.createWriteStream({
-    resumable: false,
+  await blob.save(file.buffer, {
     contentType: file.mimetype,
+    resumable: false,
   });
 
-  return new Promise((resolve, reject) => {
-    blobStream.on("error", reject);
-
-    blobStream.on("finish", async () => {
-      try {
-        // Signed URL (valid for 1 hour)
-        const [url] = await blob.getSignedUrl({
-          action: "read",
-          expires: Date.now() + 60 * 60 * 1000,
-        });
-
-        resolve({
-          fileUrl: url, // use this in frontend
-          filePath: fileName, // store this in DB
-        });
-      } catch (err) {
-        reject(err);
-      }
-    });
-
-    blobStream.end(file.buffer);
-  });
+  return fileName;
 };
 
-// Generate signed URL later using filePath
-exports.getSignedUrl = async (filePath) => {
-  const bucket = getBucket();
+exports.getSignedUrl = async (filePath, businessId) => {
+  const bucket = getBucket(businessId);
+
   const file = bucket.file(filePath);
 
   const [url] = await file.getSignedUrl({
+    version: "v4",
     action: "read",
-    expires: Date.now() + 60 * 60 * 1000, // 1 hour
+    expires: Date.now() + 1000 * 60 * 60,
   });
 
   return url;
 };
 
-exports.deleteFile = async (fileUrl) => {
+exports.deleteFile = async (filePath, businessId) => {
   try {
-    const bucket = getBucket();
+    const bucket = getBucket(businessId);
 
-    const filePath = fileUrl.split(".com/")[1];
-    if (filePath) {
-      await bucket.file(filePath).delete();
+    const file = bucket.file(filePath);
+
+    const [exists] = await file.exists();
+
+    if (exists) {
+      await file.delete();
     }
-  } catch (err) {
-    console.log("Delete failed:", err.message);
+  } catch (error) {
+    console.error("GCS Delete Error:", error.message);
   }
+};
+
+exports.replaceFile = async (
+  newFile,
+  businessId,
+  folder,
+  oldFilePath
+) => {
+  const newFilePath = await exports.uploadFile(
+    newFile,
+    businessId,
+    folder
+  );
+
+  if (oldFilePath) {
+    await exports.deleteFile(
+      oldFilePath,
+      businessId
+    );
+  }
+
+  return newFilePath;
 };

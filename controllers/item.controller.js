@@ -136,7 +136,7 @@ exports.updateItem = async (req, res) => {
       try {
         // Delete old image (if exists)
         if (item.itemImage) {
-          await deleteFile(item.itemImage);
+          await deleteFile(item.itemImage, businessId);
         }
 
         // Upload new image
