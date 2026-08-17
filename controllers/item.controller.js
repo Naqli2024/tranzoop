@@ -12,7 +12,9 @@ exports.addItem = async (req, res) => {
 
     // Basic validation
     if (!itemName) {
-      return res.status(400).json({ message: "itemName is required" });
+      return res.status(400).json({
+        message: "itemName is required",
+      });
     }
 
     // Check duplicate
@@ -27,15 +29,27 @@ exports.addItem = async (req, res) => {
       });
     }
 
-    let imagePath = ""; // store path (not URL)
-    let imageUrl = "";  // temporary signed URL
+    // Store only the GCS file path in MongoDB
+    let imagePath = "";
 
+    // Temporary signed URL to send to frontend
+    let imageUrl = "";
+
+    // Upload image if provided
     if (req.file) {
       try {
-        const result = await uploadFile(req.file, businessId, erpKey);
+        // uploadFile returns the GCS file path
+        imagePath = await uploadFile(
+          req.file,
+          businessId,
+          erpKey
+        );
 
-        imagePath = result.filePath; // store this in DB
-        imageUrl = result.fileUrl;   // send to frontend
+        // Generate temporary signed URL
+        imageUrl = await getSignedUrl(
+          imagePath,
+          businessId
+        );
       } catch (uploadErr) {
         return res.status(500).json({
           message: "Image upload failed",
@@ -44,10 +58,12 @@ exports.addItem = async (req, res) => {
       }
     }
 
+    // Create item
     const item = await Item.create({
       businessId,
       erpKey,
-      itemImage: imagePath, // store filePath instead of URL
+      itemImage: imagePath,
+
       itemName: req.body.itemName,
       sku: req.body.sku,
       barCode: req.body.barCode,
@@ -61,11 +77,12 @@ exports.addItem = async (req, res) => {
       openingStock: req.body.openingStock,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "Item created",
       item,
-      // return signed URL separately
-      imageUrl, 
+
+      // Temporary URL for frontend
+      imageUrl,
     });
 
   } catch (err) {
@@ -74,7 +91,10 @@ exports.addItem = async (req, res) => {
         message: "Item already exists (duplicate)",
       });
     }
-    res.status(500).json({ error: err.message });
+
+    return res.status(500).json({
+      error: err.message,
+    });
   }
 };
 

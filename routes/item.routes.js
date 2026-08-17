@@ -5,7 +5,9 @@ const auth = require("../middleware/auth.middleware");
 const upload = require("../middleware/upload");
 
 // Add item (with image)
-router.post("/add", auth, upload.single("itemImage"), controller.addItem);
+router.post("/add", auth, upload.single("itemImage"), (req, res, next) => {
+    next();
+  },controller.addItem);
 
 // itemImage
 router.get("/image", controller.getItemImage);
