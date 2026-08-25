@@ -485,7 +485,7 @@ exports.getInvoiceByBillNo = async (req, res) => {
     res.json({
       invoice: {
         billNo: bill.billNo,
-        date: bill.createdAt,
+        date: bill.dateCorrected || bill.createdAt,
 
         customer: {
           name: bill.customerName,
@@ -576,6 +576,62 @@ exports.deleteBill = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({
+      error: err.message,
+    });
+  }
+};
+
+exports.editBillDate = async (req, res) => {
+  try {
+    const { billNo, date } = req.body;
+
+    if (!billNo) {
+      return res.status(400).json({
+        message: "billNo is required",
+      });
+    }
+
+    if (!date) {
+      return res.status(400).json({
+        message: "date is required",
+      });
+    }
+
+    // Validate date
+    const correctedDate = new Date(date);
+
+    if (isNaN(correctedDate.getTime())) {
+      return res.status(400).json({
+        message: "Invalid date",
+      });
+    }
+
+    // Find bill
+    const bill = await Bill.findOne({ billNo });
+
+    if (!bill) {
+      return res.status(404).json({
+        message: "Bill not found",
+      });
+    }
+
+    // Update ONLY dateCorrected
+    bill.dateCorrected = correctedDate;
+
+    await bill.save();
+
+    return res.status(200).json({
+      message: "Bill date updated successfully",
+      bill: {
+        billNo: bill.billNo,
+        date: bill.dateCorrected,
+      },
+    });
+  } catch (err) {
+    console.error("Edit bill date error:", err);
+
+    return res.status(500).json({
+      message: "Failed to update bill date",
       error: err.message,
     });
   }

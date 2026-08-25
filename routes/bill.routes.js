@@ -21,6 +21,9 @@ router.get("/:billNo", auth, controller.getBillByBillNo);
 
 router.post("/invoice/by-billno", controller.getInvoiceByBillNo);
 
+// Edit ONLY Bill Date
+router.put("/edit-date", auth, controller.editBillDate);
+
 router.delete("/:billId", auth, controller.deleteBill);
 
 module.exports = router;
