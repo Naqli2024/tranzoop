@@ -3,59 +3,172 @@ const Payment = require("../models/Payment");
 const Bill = require("../models/Bill");
 
 // ADD PAYMENT
+// exports.addPayment = async (req, res) => {
+//   try {
+//     const { businessId } = req.user;
+//     const { billId, payments } = req.body;
+
+//     if (!payments || !Array.isArray(payments) || payments.length === 0) {
+//       return res.status(400).json({ message: "Payments array required" });
+//     }
+
+//     const bill = await Bill.findOne({ _id: billId, businessId });
+
+//     if (!bill) {
+//       return res.status(404).json({ message: "Bill not found" });
+//     }
+
+//     const currentDue = bill.dueAmount;
+
+//     if (currentDue <= 0) {
+//       return res.status(400).json({ message: "Already paid" });
+//     }
+
+//     const totalIncoming = payments.reduce((sum, p) => {
+//       if (!p.amount || p.amount <= 0) {
+//         throw new Error("Invalid amount");
+//       }
+//       return sum + p.amount;
+//     }, 0);
+
+//     if (totalIncoming > currentDue) {
+//       return res.status(400).json({ message: "Exceeds due" });
+//     }
+
+//     const newPaidAmount = Number((bill.paidAmount + totalIncoming).toFixed(2));
+//     const newDueAmount = Number((bill.grandTotal - newPaidAmount).toFixed(2));
+
+//     let status = "PARTIAL";
+//     if (newDueAmount === 0) status = "PAID";
+
+//     // Save payments
+//     const paymentDocs = payments.map(p => ({
+//       businessId,
+//       billId,
+//       customerId: bill.customerId,
+//       amount: p.amount,
+//       method: p.method,
+//       paymentStatus: status
+//     }));
+
+//     const savedPayments = await Payment.insertMany(paymentDocs);
+
+//     // Update bill
+//     const methods = new Set(bill.paymentMethods || []);
+//     payments.forEach(p => methods.add(p.method));
+
+//     bill.paymentMethods = [...methods];
+//     bill.paidAmount = newPaidAmount;
+//     bill.dueAmount = newDueAmount;
+//     bill.paymentStatus = status;
+
+//     await bill.save();
+
+//     res.json({
+//       message: "Payment added",
+//       payments: savedPayments,
+//       bill: {
+//         paidAmount: newPaidAmount,
+//         dueAmount: newDueAmount,
+//         status
+//       }
+//     });
+
+//   } catch (err) {
+//     res.status(400).json({ error: err.message });
+//   }
+// };
+
 exports.addPayment = async (req, res) => {
   try {
     const { businessId } = req.user;
     const { billId, payments } = req.body;
 
     if (!payments || !Array.isArray(payments) || payments.length === 0) {
-      return res.status(400).json({ message: "Payments array required" });
+      return res.status(400).json({
+        message: "Payments array required",
+      });
     }
 
-    const bill = await Bill.findOne({ _id: billId, businessId });
+    const bill = await Bill.findOne({
+      _id: billId,
+      businessId,
+    });
 
     if (!bill) {
-      return res.status(404).json({ message: "Bill not found" });
+      return res.status(404).json({
+        message: "Bill not found",
+      });
     }
 
-    const currentDue = bill.dueAmount;
+    // Round existing due to whole rupees
+    const currentDue = Math.round(Number(bill.dueAmount || 0));
 
     if (currentDue <= 0) {
-      return res.status(400).json({ message: "Already paid" });
+      return res.status(400).json({
+        message: "Already paid",
+      });
     }
 
-    const totalIncoming = payments.reduce((sum, p) => {
-      if (!p.amount || p.amount <= 0) {
+    // Validate and round every incoming payment
+    const roundedPayments = payments.map((p) => {
+      const amount = Number(p.amount);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
         throw new Error("Invalid amount");
       }
-      return sum + p.amount;
-    }, 0);
+
+      const roundedAmount = Math.round(amount);
+
+      if (roundedAmount <= 0) {
+        throw new Error("Payment amount must be at least ₹1");
+      }
+
+      return {
+        ...p,
+        amount: roundedAmount,
+      };
+    });
+
+    const totalIncoming = roundedPayments.reduce(
+      (sum, p) => sum + p.amount,
+      0
+    );
 
     if (totalIncoming > currentDue) {
-      return res.status(400).json({ message: "Exceeds due" });
+      return res.status(400).json({
+        message: "Exceeds due",
+      });
     }
 
-    const newPaidAmount = Number((bill.paidAmount + totalIncoming).toFixed(2));
-    const newDueAmount = Number((bill.grandTotal - newPaidAmount).toFixed(2));
+    // Update paid and due amounts using whole rupees
+    const currentPaid = Math.round(Number(bill.paidAmount || 0));
 
-    let status = "PARTIAL";
-    if (newDueAmount === 0) status = "PAID";
+    const newPaidAmount = currentPaid + totalIncoming;
 
-    // Save payments
-    const paymentDocs = payments.map(p => ({
+    const newDueAmount = Math.max(
+      0,
+      currentDue - totalIncoming
+    );
+
+    const status = newDueAmount === 0 ? "PAID" : "PARTIAL";
+
+    // Save payments using rounded amounts
+    const paymentDocs = roundedPayments.map((p) => ({
       businessId,
       billId,
       customerId: bill.customerId,
       amount: p.amount,
       method: p.method,
-      paymentStatus: status
+      paymentStatus: status,
     }));
 
     const savedPayments = await Payment.insertMany(paymentDocs);
 
     // Update bill
     const methods = new Set(bill.paymentMethods || []);
-    payments.forEach(p => methods.add(p.method));
+
+    roundedPayments.forEach((p) => methods.add(p.method));
 
     bill.paymentMethods = [...methods];
     bill.paidAmount = newPaidAmount;
@@ -64,18 +177,19 @@ exports.addPayment = async (req, res) => {
 
     await bill.save();
 
-    res.json({
+    return res.json({
       message: "Payment added",
       payments: savedPayments,
       bill: {
         paidAmount: newPaidAmount,
         dueAmount: newDueAmount,
-        status
-      }
+        status,
+      },
     });
-
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    return res.status(400).json({
+      error: err.message,
+    });
   }
 };
 
